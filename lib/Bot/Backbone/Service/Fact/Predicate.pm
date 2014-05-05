@@ -25,7 +25,7 @@ sub load_schema {
                 copula TEXT,
                 predicate TEXT,
                 PRIMARY KEY (subject_key, copula_key, predicate_key)
-            );
+            )
         ]);
     });
 }
