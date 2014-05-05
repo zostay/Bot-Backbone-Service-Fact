@@ -9,7 +9,7 @@ with qw(
 
 service_dispatcher as {
     command '!randomfact' => respond_by_method 'random_fact';
-    not_command respond_by_method 'memorize_and_recall';
+    also not_command spoken respond_by_method 'memorize_and_recall';
 };
 
 sub load_schema {
