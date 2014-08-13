@@ -1,16 +1,111 @@
 package Bot::Backbone::Service::Fact::Predicate;
 use Bot::Backbone::Service;
 
+# ABSTRACT: Keep track of statements of equivalence and the like
+
 with qw(
     Bot::Backbone::Service::Role::Service
     Bot::Backbone::Service::Role::Responder
     Bot::Backbone::Service::Role::Storage
 );
 
+=head1 SYNOPSIS
+
+    # in the bot configuration
+    service predicate => (
+        service         => 'Fact::Predicate',
+        accepted_copula => [ qw( is says ) ],
+    );
+
+    # In chat:
+    alice> Zathras says "Can not run out of time, there is infinite time. You
+    are finite, Zathras is finite. This is wrong tool. No. No. Not good. No.
+    No. Never use this."
+    alice> Zathras?
+    bot> Zathras says "Can not run out of time, there is infinite time. You
+    are finite, Zathras is finite. This is wrong tool. No. No. Not good. No.
+    No. Never use this."
+
+=head1 DESCRIPTION
+
+With this service configured, the bot will monitor the chat and whenever
+it encounters a statement that appears to be in the correct predicate nominative
+form, it will memorize that fact. Later one, if a question is issued for the
+memorize fact, the bot will return a memorized response for it. It can
+memorize multiple responses for the same fact, in which case, it returns
+any one of them at random.
+
+=head1 DISPATCHER
+
+=head2 !randomfact
+
+This command will cause the bot to pick one of it's memorized facts and return
+it.
+
+=head2 All Chats
+
+All other chats are memorized to see if they appear to be of the form:
+
+    <subject> <copula> <predicate>
+
+In those cases, the fact is memorized. 
+
+At the same time, it checks to see if any chat message matches a known
+subject. If it does, the bot will return the original statement of the fact.
+
+=cut
+
 service_dispatcher as {
     command '!randomfact' => respond_by_method 'random_fact';
     also not_command spoken respond_by_method 'memorize_and_recall';
 };
+
+=head1 ATTRIBUTES
+
+=head2 accepted_copula
+
+This is a list of acceptable copula. A "copula" is a connecting word in a sentence connecting a subject and complement. Depending on context, there are a lot of words that can be found in a statement of equivalence, but the default just includes these words:
+
+    is isn't are aren't
+
+You can also put other words that aren't strictly words that define predicate nominative equivalence, such as "says" or "smells like" or whatever. Every time these words appear in a statement within a chat, though, it will be memorized.
+
+=cut
+
+has accepted_copula => (
+    is          => 'ro',
+    isa         => 'ArrayRef[Str]',
+    required    => 1,
+    default     => sub {
+        [ qw( is isn't are aren't ) ],
+    },
+);
+
+=head2 copula_re
+
+This is a regular expression that is usually built from the L</accepted_copula>. It is used to identify and split chats that contain a statement of the form the bot is looking for.
+
+=cut
+
+has copula_re => (
+    is          => 'ro',
+    isa         => 'RegexpRef',
+    lazy_build  => 1,
+);
+
+sub _build_copula_re {
+    my $self = shift;
+    my $copula_list = join '|', map { quotemeta } @{ $self->accepted_copula };
+    return qr/\b($copula_list)\b/;
+}
+
+=head1 METHODS
+
+=head2 load_schema
+
+Used by the L<Bot::Backbone::Service::Role::Storage> to setup the C<fact_predicates> table.
+
+=cut
 
 sub load_schema {
     my ($self, $db_conn) = @_;
@@ -30,26 +125,11 @@ sub load_schema {
     });
 }
 
-has accepted_copula => (
-    is          => 'ro',
-    isa         => 'ArrayRef[Str]',
-    required    => 1,
-    default     => sub {
-        [ qw( is isn't are aren't ) ],
-    },
-);
+=head2 store_fact
 
-has copula_re => (
-    is          => 'ro',
-    isa         => 'RegexpRef',
-    lazy_build  => 1,
-);
+This is a helper function that saves a subject/predicate fact.
 
-sub _build_copula_re {
-    my $self = shift;
-    my $copula_list = join '|', map { quotemeta } @{ $self->accepted_copula };
-    return qr/\b($copula_list)\b/;
-}
+=cut
 
 sub store_fact {
     my ($self, $subject, $copula, $predicate) = @_;
@@ -61,6 +141,12 @@ sub store_fact {
         ], undef, lc($subject), lc($copula), lc($predicate), $subject, $copula, $predicate);
     });
 }
+
+=head2 recall_fact
+
+This is a helper used to retrieve a subject/predicate fact.
+
+=cut
 
 sub recall_fact {
     my ($self, $subject, $copula) = @_;
@@ -77,6 +163,12 @@ sub recall_fact {
 
     return @fact;
 }
+
+=head2 memorize_and_recall
+
+This is the method used to monitor all chats for facts to memorize or recall.
+
+=cut
 
 sub _trim { local $_ = shift; s/^\s+//; s/\s+$//; $_ }
 sub memorize_and_recall {
@@ -109,6 +201,12 @@ sub memorize_and_recall {
     return;
 }
 
+=head2 random_fact
+
+This implements the C<!randomfact> command.
+
+=cut
+
 sub random_fact {
     my ($self, $message) = @_;
 
@@ -124,6 +222,12 @@ sub random_fact {
     return join ' ', @fact if @fact;
     return 'I do not know any facts.';
 }
+
+=head2 initialize
+
+No op.
+
+=cut
 
 sub initialize { }
 
